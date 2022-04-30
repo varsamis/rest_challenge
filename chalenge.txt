@@ -1,0 +1,46 @@
+Write a small http service, it should support three API calls, /report, /reports and /report/submit.
+
+/report/submit will accept files with several extensions .json and .csv.
+
+/report/submit will read the file and perform some analysis on it, you choose what you'd like to do. 
+f.e. you can submit one of the datasets you currently use and run some of the analysis you already 
+have done. Or something simpler, like f.e. counting number of lines in the dataset or something like 
+that. Feel free to get as creative as you like here.
+
+The analysis should not block the request, return http accepted code once you get the data, and 
+change it to done when done.
+
+Submitting wrong type of file or trying to access a report until it is ready should result in an 
+http error code.
+
+Your application should support plugins and load necessary one for the type of file submitted.
+
+/reports should just list the already generated ones, along with their status, and /report allow 
+you to fetch a specific one.
+
+Bonus points:
+
+Using https://docs.python.org/3/library/multiprocessing.html or 
+https://docs.python.org/3/library/asyncio.html
+
+API documentation can be viewed or experimented with.
+
+Structured logging, metrics, error handling, checkpointing.
+
+Unit tests! Specifically pytest ones!
+
+Improve on the intuitiveness of the API suggested above, can you design it so it is more rest? more intuitive?
+
+Some references, but these are just examples, feel free to use whatever you like:
+
+https://bottlepy.org
+https://flask.palletsprojects.com
+https://fastapi.tiangolo.com
+https://pluggy.readthedocs.io/en/latest/
+https://docs.python.org/3/library/json.html
+https://docs.python.org/3/library/csv.html
+https://docs.python.org/3/library/sqlite3.html
+https://docs.pytest.org
+https://www.freecodecamp.org/news/rest-api-best-practices-rest-endpoint-design-examples/
+https://opentelemetry.io/docs/instrumentation/python/
+https://newrelic.com/blog/how-to-relic/python-structured-logging
