@@ -1,62 +1,45 @@
 """
 Chalenge restfull API
 """
+from fastapi import Depends, FastAPI, HTTPException, UploadFile
+from sqlalchemy.orm import Session
 
-from bottle import Bottle, abort, run, request
-from db_wrapper import Model, Report
-import helpers
-from threading import Thread
-from datetime import datetime, timezone
-from uuid import uuid4
-import os
-import json
+from . import crud, models, schemas, helpers
+from .database import SessionLocal, engine
 
+import asyncio
 
-DB_NAME = 'db/rest_challenge.db'
+models.Base.metadata.create_all(bind=engine)
 
-app = Bottle()
-Model.init_db(DB_NAME)
+app = FastAPI()
 
-@app.route('/')
-def report():
-    return 'hi there'
+# Dependency
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
-@app.route('/report')
-def report():
-    pass
-
-
-@app.get('/report/new')
-def get_new_report():
-    return '''<form action="/report/new" method="post" enctype="multipart/form-data">
-            Category:      <input type="text" name="category" />
-            Select a file: <input type="file" name="upload" />
-            <input type="submit" value="Start upload" />
-            </form>
-            '''
-
-@app.post('/report/new')
-def post_new_report():
-    category   = request.forms.get('category')
-    upload     = request.files.get('upload')
-    file_name, ext = os.path.splitext(upload.filename)
-    if ext not in ('.json','.csv'):
-        abort(415, 'Unsupported Media Type')
-
-    new_report = Report(path=f'{file_name}{ext}', name=file_name)
-    new_report.save()
-    new_thread = Thread(target=helpers.process_file, args=[file_name, ext])
-    new_thread.start() 
+@app.get('/report/{report_id}')
+def read_report(report_id: int, db: Session = Depends(get_db)):
+    db_report = crud.get_report(db, report_id=report_id)
+    if db_report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return db_report
 
 
-### Collections ##
+@app.post("/report/new")
+def create_report(file: UploadFile, db: Session = Depends(get_db)):
+    if file.filename.split('.')[-1] not in ['csv', 'json']:
+        raise HTTPException(status_code=415, detail='Unsupported Media Type')
+    result = asyncio.run(helpers.process_file(file))
+    db_report = crud.create_report(db, report=schemas.ReportCreate(file_name=file.filename, result=result))
+    return db_report
 
-@app.route('/reports')
-def reports():
-    cur =  db.connection.cursor()
-    cur.execute('SELECT * FROM reports')
-    return json.dumps(cur.fetchall())
+
+@app.get('/reports', response_model=list[schemas.Report])
+def read_reports(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    reports = crud.get_reports(db, skip=skip, limit=limit)
+    return reports
     
-    
-
-run(app, host='localhost', port=8000)
