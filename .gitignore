@@ -131,3 +131,6 @@ dmypy.json
 # VS Code 
 # .vscode/
 .vscode*
+
+# Remove SQLite db files
+*.db

@@ -12,6 +12,6 @@ class ReportCreate(ReportBase):
 class Report(ReportBase):
     id: int
     created: datetime.datetime
-    
+
     class Config:
         orm_mode = True
