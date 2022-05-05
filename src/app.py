@@ -1,62 +1,79 @@
 """
 Chalenge restfull API
 """
+import logging
+from logging.handlers import RotatingFileHandler
+import asyncio
+import structlog
 
-from bottle import Bottle, abort, run, request
-from db_wrapper import Model, Report
-import helpers
-from threading import Thread
-from datetime import datetime, timezone
-from uuid import uuid4
-import os
-import json
+from fastapi import Depends, FastAPI, HTTPException, UploadFile
+from sqlalchemy.orm import Session
 
+from . import crud, models, schemas, helpers
+from .database import SessionLocal, engine
 
-DB_NAME = 'db/rest_challenge.db'
+models.Base.metadata.create_all(bind=engine)
 
-app = Bottle()
-Model.init_db(DB_NAME)
+app = FastAPI()
 
-@app.route('/')
-def report():
-    return 'hi there'
-
-@app.route('/report')
-def report():
-    pass
-
-
-@app.get('/report/new')
-def get_new_report():
-    return '''<form action="/report/new" method="post" enctype="multipart/form-data">
-            Category:      <input type="text" name="category" />
-            Select a file: <input type="file" name="upload" />
-            <input type="submit" value="Start upload" />
-            </form>
-            '''
-
-@app.post('/report/new')
-def post_new_report():
-    category   = request.forms.get('category')
-    upload     = request.files.get('upload')
-    file_name, ext = os.path.splitext(upload.filename)
-    if ext not in ('.json','.csv'):
-        abort(415, 'Unsupported Media Type')
-
-    new_report = Report(path=f'{file_name}{ext}', name=file_name)
-    new_report.save()
-    new_thread = Thread(target=helpers.process_file, args=[file_name, ext])
-    new_thread.start() 
-
-
-### Collections ##
-
-@app.route('/reports')
-def reports():
-    cur =  db.connection.cursor()
-    cur.execute('SELECT * FROM reports')
-    return json.dumps(cur.fetchall())
+def setup_logging():
+    # Get the Logger
+    _logger = logging.getLogger(__file__)
     
+    # Set logging level
+    _logger.setLevel(logging.INFO)
     
+    # Configure log handler
+    rotating_log_handler = RotatingFileHandler('/tmp/testLogFile.log', maxBytes=10000, backupCount=1)
+    
+    # Add RotatingFileHandler to the logger
+    _logger.addHandler(rotating_log_handler)
+    
+    # Configure Structlog
+    struct_logger = structlog.wrap_logger(
+        _logger,
+        wrapper_class=structlog.BoundLogger,
+        context_class=dict,
+        cache_logger_on_first_use=None,
+        logger_factory_args=None
+    )
 
-run(app, host='localhost', port=8000)
+    return struct_logger
+
+log = setup_logging()
+
+# Dependency
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+@app.get('/report/{report_id}')
+def read_report(report_id: int, db: Session = Depends(get_db)):
+    log.info('GET /report/', report_id=report_id)
+    db_report = crud.get_report(db, report_id=report_id)
+    if db_report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    log.info('Response /report/', db_report=db_report)
+    return db_report
+
+
+@app.post("/report/new")
+def create_report(file: UploadFile, db: Session = Depends(get_db)):
+    log.info('POST /report/new', file=file.filename)
+    if file.filename.split('.')[-1] not in ['csv', 'json']:
+        raise HTTPException(status_code=415, detail='Unsupported Media Type')
+    result = asyncio.run(helpers.process_file(file))
+    db_report = crud.create_report(db, report=schemas.ReportCreate(file_name=file.filename, result=result))
+    log.info('Response /report/new', db_report=db_report)
+    return db_report
+
+
+@app.get('/reports', response_model=list[schemas.Report])
+def read_reports(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    log.info('GET /reports')
+    reports = crud.get_reports(db, skip=skip, limit=limit)
+    log.info('GET /reports', reports_len=len(reports))
+    return reports
